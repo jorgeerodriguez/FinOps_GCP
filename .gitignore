@@ -7,6 +7,7 @@
 
 # Track notebooks and repo files
 !*.ipynb
+!*.code-workspace
 !.gitignore
 !README.md
 

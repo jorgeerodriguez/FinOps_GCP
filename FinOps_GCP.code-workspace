@@ -1,0 +1,39 @@
+{
+  "folders": [
+    {
+      "name": "FinOps GCP",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "git.enabled": true,
+    "git.autofetch": true,
+    "git.autofetchPeriod": 180,
+    "git.confirmSync": false,
+    "git.enableSmartCommit": true,
+    "git.postCommitCommand": "none",
+    "git.openRepositoryInParentFolders": "never",
+    "jupyter.notebookFileRoot": "${workspaceFolder}",
+    "files.exclude": {
+      "**/.git": true,
+      "**/.DS_Store": true,
+      "**/__pycache__": true,
+      "**/.ipynb_checkpoints": true,
+      "**/*.csv": true,
+      "**/*.html": true,
+      "**/*.png": true
+    },
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+      "*.ipynb": "${capture}.ipynb"
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-toolsai.jupyter",
+      "ms-python.python",
+      "eamodio.gitlens",
+      "github.vscode-pull-request-github"
+    ]
+  }
+}
