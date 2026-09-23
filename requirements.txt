@@ -1,0 +1,10 @@
+# GCP FinOps notebook dependencies
+google-cloud-bigquery
+db-dtypes
+pandas
+plotly
+nbformat
+python-dateutil
+
+# Jupyter kernel for running the notebook in VS Code
+ipykernel
