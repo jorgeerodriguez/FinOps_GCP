@@ -49,3 +49,6 @@ venv/
 
 # macOS
 .DS_Store
+
+# ── Report templates (tracked; generated reports above stay ignored) ───────
+!templates/*.html

@@ -1,0 +1,301 @@
+<title>GCP Orphaned Projects Audit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Public+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: ledger-style audit page. Summary band → spend chart → filterable project ledger with expandable rows → guidance. */
+:root{
+  --bg:#f6f7f8; --surface:#ffffff; --ink:#14191f; --ink-2:#4a5560; --ink-3:#7a8590; --rule:#dfe3e7; --rule-2:#eceff2;
+  --accent:#1d5fa8; --accent-soft:#e6eef8;
+  --s-active:#1f7a3d; --s-active-bg:#e5f3ea;
+  --s-review:#8a6100; --s-review-bg:#fbf1d6;
+  --s-spend:#b2470f; --s-spend-bg:#fbe7da;
+  --s-idle:#b42323; --s-idle-bg:#f9e2e2;
+  --s-gone:#5b6470; --s-gone-bg:#e9ecef;
+  --c1:#2a78d6; --c2:#eb6834; --c3:#1baf7a; --c4:#eda100; --c5:#e87ba4; --c6:#9aa3ad;
+  --f-display:"Bricolage Grotesque", "Public Sans", system-ui, sans-serif;
+  --f-body:"Public Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#101418; --surface:#171c21; --ink:#eef1f4; --ink-2:#b4bdc6; --ink-3:#86919c; --rule:#2a323a; --rule-2:#222930;
+  --accent:#6aa6ec; --accent-soft:#1a2a3d;
+  --s-active:#6fcf8f; --s-active-bg:#173322; --s-review:#e8c15a; --s-review-bg:#3a2f12;
+  --s-spend:#f39a62; --s-spend-bg:#3d2414; --s-idle:#f08080; --s-idle-bg:#3d1b1b; --s-gone:#aab3bd; --s-gone-bg:#262d34;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#6b747e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#101418; --surface:#171c21; --ink:#eef1f4; --ink-2:#b4bdc6; --ink-3:#86919c; --rule:#2a323a; --rule-2:#222930;
+  --accent:#6aa6ec; --accent-soft:#1a2a3d;
+  --s-active:#6fcf8f; --s-active-bg:#173322; --s-review:#e8c15a; --s-review-bg:#3a2f12;
+  --s-spend:#f39a62; --s-spend-bg:#3d2414; --s-idle:#f08080; --s-idle-bg:#3d1b1b; --s-gone:#aab3bd; --s-gone-bg:#262d34;
+  --c1:#3987e5; --c2:#d95926; --c3:#199e70; --c4:#c98500; --c5:#d55181; --c6:#6b747e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--f-body);padding-inline:16px;padding-block:28px 64px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:36px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;letter-spacing:-.01em}
+h1{font-size:clamp(28px,4.2vw,40px);line-height:1.1}
+h2{font-size:22px}
+h3{font-size:15px;font-family:var(--f-body);font-weight:600}
+p{margin:0;max-width:72ch}
+.mono{font-family:var(--f-mono);font-size:.86em}
+.num{font-variant-numeric:tabular-nums}
+.eyebrow{font:500 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+.muted{color:var(--ink-2)}
+header{display:flex;flex-direction:column;gap:10px;border-bottom:2px solid var(--ink);padding-bottom:18px}
+header .meta{display:flex;flex-wrap:wrap;gap:6px 22px;color:var(--ink-2);font-size:13px}
+section{display:flex;flex-direction:column;gap:14px}
+
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.kpi{background:var(--surface);padding:16px 18px;display:flex;flex-direction:column;gap:6px}
+.kpi .v{font:600 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.kpi .d{font-size:13px;color:var(--ink-2)}
+@media (max-width:820px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+
+.statusbar{display:flex;flex-wrap:wrap;gap:8px}
+.chip{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--rule);background:var(--surface);color:var(--ink);border-radius:999px;padding:6px 12px;font:500 13px var(--f-body);cursor:pointer}
+.chip:hover{border-color:var(--ink-3)}
+.chip[aria-pressed="true"]{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.chip .n{font-family:var(--f-mono);color:var(--ink-2)}
+.chip:focus-visible,.row-btn:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dot{width:9px;height:9px;border-radius:50%;flex:none}
+.pill{display:inline-flex;align-items:center;gap:6px;border-radius:4px;padding:2px 8px;font:600 12px/1.6 var(--f-body);white-space:nowrap}
+.st-active{color:var(--s-active);background:var(--s-active-bg)} .st-active .dot{background:var(--s-active)}
+.st-review{color:var(--s-review);background:var(--s-review-bg)} .st-review .dot{background:var(--s-review)}
+.st-spend{color:var(--s-spend);background:var(--s-spend-bg)} .st-spend .dot{background:var(--s-spend)}
+.st-idle{color:var(--s-idle);background:var(--s-idle-bg)} .st-idle .dot{background:var(--s-idle)}
+.st-gone{color:var(--s-gone);background:var(--s-gone-bg)} .st-gone .dot{background:var(--s-gone)}
+
+.panel{background:var(--surface);border:1px solid var(--rule);padding:18px}
+.chart-wrap{position:relative}
+.chart-wrap svg{display:block;width:100%;height:auto;overflow:visible}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);padding:8px 10px;font-size:12px;line-height:1.5;border-radius:4px;min-width:170px;z-index:5}
+.tip b{font-weight:600}
+.tip .r{display:flex;justify-content:space-between;gap:14px;font-variant-numeric:tabular-nums}
+
+.tools{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+input[type=search]{font:14px var(--f-body);padding:8px 12px;border:1px solid var(--rule);background:var(--surface);color:var(--ink);border-radius:4px;width:min(320px,100%)}
+.tablebox{overflow-x:auto;border:1px solid var(--rule);background:var(--surface)}
+table{border-collapse:collapse;width:100%;min-width:980px;font-size:13.5px}
+th{font:500 11px/1.3 var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);text-align:left;padding:10px 12px;border-bottom:1px solid var(--rule);background:var(--surface);position:sticky;top:0}
+td{padding:10px 12px;border-bottom:1px solid var(--rule-2);vertical-align:top}
+th.r,td.r{text-align:right}
+tr.main{cursor:pointer}
+tr.main:hover td{background:var(--accent-soft)}
+.row-btn{all:unset;cursor:pointer;display:flex;flex-direction:column;gap:2px}
+.row-btn .pn{font-weight:600}
+.row-btn .pid{font-family:var(--f-mono);font-size:12px;color:var(--ink-3)}
+.caret{display:inline-block;width:10px;color:var(--ink-3);transition:transform .15s}
+tr.open .caret{transform:rotate(90deg)}
+.small{font-size:12px;color:var(--ink-3)}
+td.detail{background:var(--bg);padding:18px}
+.dgrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:22px}
+@media (max-width:900px){.dgrid{grid-template-columns:1fr}}
+.dgrid > div{min-width:0;display:flex;flex-direction:column;gap:8px}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;font-size:13px}
+.kv dt{color:var(--ink-3)} .kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+.list{list-style:none;margin:0;padding:0;font-size:13px;display:flex;flex-direction:column;gap:5px}
+.list li{display:flex;justify-content:space-between;gap:10px;border-bottom:1px dotted var(--rule);padding-bottom:4px}
+.list li span:first-child{min-width:0;overflow-wrap:anywhere}
+.list li span:last-child{flex:none;font-variant-numeric:tabular-nums;color:var(--ink-2)}
+.mtable{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px 10px;font-size:12px;font-variant-numeric:tabular-nums}
+.mtable div{display:flex;justify-content:space-between;gap:6px} .mtable div span:first-child{color:var(--ink-3)}
+.action{font-size:13px;border-left:3px solid var(--ink-3);padding-left:10px}
+
+.guide{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}
+@media (max-width:820px){.guide{grid-template-columns:1fr}}
+.guide ol,.guide ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:14px}
+.guide li{max-width:70ch}
+.legend-table{font-size:13px;display:flex;flex-direction:column;gap:8px}
+.legend-table div{display:grid;grid-template-columns:150px 1fr;gap:12px;align-items:start}
+@media (max-width:520px){.legend-table div{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">FinOps · Google Cloud · Project audit</span>
+  <h1>GCP Orphaned Projects Audit</h1>
+  <p class="muted" id="lede"></p>
+  <div class="meta"><span id="asof"></span><span>Billing: BigQuery billing export, net of credits</span><span>Access: Cloud Audit Logs + IAM policy</span></div>
+</header>
+
+<section aria-label="Summary">
+  <div class="kpis" id="kpis"></div>
+  <div class="statusbar" id="chips" role="group" aria-label="Filter by status"></div>
+</section>
+
+<section>
+  <div><h2>Monthly spend, __RANGE__</h2><p class="muted">Net cost per month for the audited projects. The five largest are shown individually; everything else is grouped. __PARTIAL__</p></div>
+  <div class="panel">
+    <div class="legend" id="legend"></div>
+    <div class="chart-wrap" id="chart"></div>
+  </div>
+</section>
+
+<section>
+  <div class="tools">
+    <div><h2>Project ledger</h2><p class="muted">Click a row to see monthly cost, services, recent users and IAM access.</p></div>
+    <input type="search" id="q" placeholder="Search name, ID, user or service" aria-label="Search projects">
+  </div>
+  <div class="tablebox">
+    <table>
+      <thead><tr><th>Project</th><th>Status</th><th class="r">Last 12 mo</th><th>Trend</th><th class="r">Avg / mo (__AVG__)</th><th>Main service</th><th>Last hands-on use</th><th class="r">IAM owners</th></tr></thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="guide">
+  <div>
+    <h2>How status is assigned</h2>
+    <div class="legend-table" id="statusdefs" style="margin-top:12px"></div>
+  </div>
+  <div>
+    <h2>Suggested next steps</h2>
+    <ol style="margin-top:12px" id="steps"></ol>
+  </div>
+  <div>
+    <h2>Method</h2>
+    <ul style="margin-top:12px">
+      <li><b>Cost</b> comes from the billing export in <span class="mono">__BILLING_PROJECT__</span>. "Net" is cost after credits. "Last 12 mo" covers __12M__ (complete months).</li>
+      <li><b>Last hands-on use</b> is the newest Cloud Audit Log entry by a person (service accounts excluded). Changes come from Admin Activity logs, searched back to __SINCE_FULL__. Reads come from Data Access logs, which are kept only 30 days by default, so read-only use older than that is not visible. Browsing calls that fire for every project when someone opens the console or billing pages (project, billing-info, IAM-policy and org-policy lookups, log reads) are ignored, as is this audit's own activity. <b>Last change</b> counts only Admin Activity writes. Data Access logs also only exist for services where they are enabled.</li>
+      <li><b>IAM owners</b> are members holding <span class="mono">roles/owner</span> directly on the project. Access inherited from folders or the organization is not listed.</li>
+      <li>Projects our account cannot read returned "permission denied" for metadata and logs. Recent billing records show the project still exists; none for months usually means it was deleted.</li>
+      <li><b>Top service accounts</b> come from the newest 5,000 audit log entries per project, so on busy projects they cover only the most recent days. They show which automation is still running.</li>
+    </ul>
+  </div>
+  <div>
+    <h2>Ideas for future versions</h2>
+    <ul style="margin-top:12px" id="ideas"></ul>
+  </div>
+</section>
+</div>
+
+<script>
+const DATA = __DATA__;
+const $ = s => document.querySelector(s);
+const fmt = v => '$' + (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString('en-US') : v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}));
+const fmt0 = v => '$' + Math.round(v).toLocaleString('en-US');
+const MLAB = DATA.months.map(m => new Date(+m.slice(0,4), +m.slice(4)-1, 1).toLocaleString('en-US',{month:'short'}) + " '" + m.slice(2,4));
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const STATUS = {
+  spend:{label:'Spend, no owner activity', def:'Costs $1+/mo, and either nobody has changed or used it (no changes since __SINCE__, no hands-on use in the last 30 days) or our account cannot see who uses it. Highest priority.'},
+  idle:{label:'Idle', def:'Under $1/mo, no changes by a person since __SINCE__ and no hands-on use in the last 30 days. Candidates to shut down after a final owner check.'},
+  gone:{label:'No access', def:'Our account cannot read the project and it costs under $1/mo. Either already deleted (no recent billing records) or still alive but owned by someone outside our view.'},
+  review:{label:'Review', def:'Last hands-on work was 3–6 months ago. Ask the owner whether it is still needed.'},
+  active:{label:'In use', def:'A person used or changed it in the last 90 days. Keep, but confirm the owner and add owner/team labels.'},
+};
+const ORDER = ['spend','idle','gone','review','active'];
+const rows = DATA.rows;
+const daysAgo = d => d==null ? '' : d===0 ? 'today' : d===1 ? '1 day ago' : d + ' days ago';
+
+$('#asof').textContent = 'Data as of ' + new Date(DATA.asof+'T12:00:00').toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'});
+
+// KPIs
+const tot12 = rows.reduce((a,r)=>a+r.cost12,0);
+const runrate = rows.reduce((a,r)=>a+r.avg3,0);
+const atRisk = rows.filter(r=>['spend','idle','gone'].includes(r.status));
+const atRiskRun = atRisk.reduce((a,r)=>a+r.avg3,0);
+const reviewRun = rows.filter(r=>r.status==='review').reduce((a,r)=>a+r.avg3,0);
+const noOwner = rows.filter(r=>r.visible && r.owners.length===0).length;
+const noLabel = rows.filter(r=>r.visible && !Object.keys(r.labels||{}).some(k=>/owner|team/i.test(k))).length;
+$('#lede').textContent = `${rows.length} Google Cloud projects from the orphaned-accounts list, checked for cost, services, who has access and when a person last used each one. ${atRisk.length} look abandoned or already gone.`;
+$('#kpis').innerHTML = [
+  [fmt0(tot12),'Net spend, last 12 months','all '+rows.length+' projects'],
+  [fmt0(runrate)+'/mo','Current run-rate','average of __AVG_FULL__'],
+  [String(atRisk.length),'Shut-down candidates', fmt0(atRiskRun)+'/mo run-rate' + (reviewRun>0?`, plus ${fmt0(reviewRun)}/mo under review`:'')],
+  [String(noLabel),'Readable projects without owner/team label', noOwner+' have no direct IAM owner'],
+].map(([v,l,d])=>`<div class="kpi"><span class="eyebrow">${l}</span><span class="v">${v}</span><span class="d">${d}</span></div>`).join('');
+
+// status chips
+let filter = null;
+function chips(){
+  $('#chips').innerHTML = `<button class="chip" data-s="" aria-pressed="${filter===null}">All <span class="n">${rows.length}</span></button>` +
+   ORDER.map(s=>{const n=rows.filter(r=>r.status===s).length; return n?`<button class="chip st-${s}" style="background:var(--surface);color:var(--ink)" data-s="${s}" aria-pressed="${filter===s}"><span class="dot"></span>${STATUS[s].label} <span class="n">${n}</span></button>`:''}).join('');
+  document.querySelectorAll('#chips .chip').forEach(b=>b.onclick=()=>{filter=b.dataset.s||null; chips(); table();});
+}
+
+// stacked chart
+function chart(){
+  const top = [...rows].sort((a,b)=>b.cost12-a.cost12).filter(r=>r.cost12>0).slice(0,5);
+  const others = rows.filter(r=>!top.includes(r));
+  const series = top.map((r,i)=>({name:r.name, color:`var(--c${i+1})`, vals:r.months}));
+  series.push({name:'All other projects', color:'var(--c6)', vals:DATA.months.map((_,i)=>others.reduce((a,r)=>a+r.months[i],0))});
+  $('#legend').innerHTML = series.map(s=>`<span><i style="background:${s.color}"></i>${esc(s.name)}</span>`).join('');
+  const W=1100,H=340,L=64,R=12,T=16,B=34, n=DATA.months.length;
+  const totals = DATA.months.map((_,i)=>series.reduce((a,s)=>a+Math.max(0,s.vals[i]),0));
+  const maxV = Math.max(...totals); const step = maxV>2000?500:maxV>800?200:100; const top_ = Math.ceil(maxV/step)*step;
+  const y = v => T + (H-T-B) * (1 - v/top_);
+  const bw = (W-L-R)/n, barW = Math.min(52, bw*0.62);
+  let g = '';
+  for(let v=0; v<=top_; v+=step){ g += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--rule)" stroke-width="1"/><text x="${L-8}" y="${y(v)+4}" text-anchor="end" font-size="12" fill="var(--ink-3)" font-family="var(--f-mono)">${fmt0(v)}</text>`; }
+  DATA.months.forEach((m,i)=>{
+    const x = L + bw*i + (bw-barW)/2; let acc=0;
+    series.forEach((s,si)=>{ const v=Math.max(0,s.vals[i]); if(v<=0) return; const y0=y(acc), y1=y(acc+v); const h=Math.max(0,y0-y1-(acc>0?2:0)); acc+=v;
+      if(h>0.3) g += `<rect x="${x}" y="${y1}" width="${barW}" height="${h}" fill="${s.color}" ${acc===totals[i]?'rx="3"':''}/>`; });
+    g += `<text x="${x+barW/2}" y="${H-B+18}" text-anchor="middle" font-size="12" fill="var(--ink-3)">${MLAB[i]}${i===n-1?'*':''}</text>`;
+    g += `<rect class="hit" data-i="${i}" x="${L+bw*i}" y="${T}" width="${bw}" height="${H-T-B}" fill="transparent"/>`;
+  });
+  g += `<line x1="${L}" x2="${W-R}" y1="${y(0)}" y2="${y(0)}" stroke="var(--ink-3)" stroke-width="1"/>`;
+  $('#chart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Stacked monthly net spend by project">${g}</svg><div class="tip" hidden></div>`;
+  const tip = $('#chart .tip');
+  $('#chart').querySelectorAll('.hit').forEach(h=>{
+    h.addEventListener('mousemove',e=>{ const i=+h.dataset.i; const box=$('#chart').getBoundingClientRect();
+      tip.innerHTML = `<b>${MLAB[i]}${i===n-1?' (partial)':''}</b> · ${fmt(totals[i])}` + series.slice().reverse().map(s=>`<div class="r"><span>${esc(s.name)}</span><span>${fmt(s.vals[i])}</span></div>`).join('');
+      tip.hidden=false; let lx=e.clientX-box.left+14; if(lx+220>box.width) lx=e.clientX-box.left-234; tip.style.left=Math.max(0,lx)+'px'; tip.style.top=(e.clientY-box.top-10)+'px'; h.setAttribute('fill','rgba(127,127,127,.08)');});
+    h.addEventListener('mouseleave',()=>{tip.hidden=true; h.setAttribute('fill','transparent');});
+  });
+}
+
+function spark(vals, status){
+  const W=96,H=26, mx=Math.max(...vals,0.01);
+  if (vals.every(v=>Math.abs(v)<0.005)) return `<span class="small">no spend</span>`;
+  const pts = vals.map((v,i)=>`${(i*(W-4)/(vals.length-1)+2).toFixed(1)},${(H-3-(Math.max(0,v)/mx)*(H-6)).toFixed(1)}`);
+  const last = pts[pts.length-2].split(',');
+  return `<svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true"><polyline points="${pts.join(' ')}" fill="none" stroke="var(--s-${status})" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${last[0]}" cy="${last[1]}" r="2.4" fill="var(--s-${status})"/></svg>`;
+}
+
+const open = new Set();
+function detail(r){
+  const months = r.months.map((v,i)=>`<div><span>${MLAB[i]}</span><span>${fmt(v)}</span></div>`).join('');
+  const svcs = r.services.length ? r.services.slice(0,8).map(s=>`<li><span>${esc(s.name)}</span><span>${fmt(s.net)}</span></li>`).join('') : '<li><span class="small">No billed services in the last 13 months</span></li>';
+  const users = r.users.length ? r.users.slice(0,12).map(u=>`<li><span>${esc(u.who)}<br><span class="small">${esc(u.what)}</span></span><span>${u.last.slice(0,10)}</span></li>`).join('') : `<li><span class="small">${!r.visible?'Logs not readable':'No hands-on use by a person in the last 30 days'}</span></li>`;
+  const mem = r.members.filter(m=>!m.m.includes('gserviceaccount.com'));
+  const sacount = r.members.length - mem.length;
+  const iam = r.iam_err ? `<li><span class="small">IAM policy not readable (${r.iam_err})</span></li>` :
+    (mem.length? mem.slice(0,14).map(m=>`<li><span>${esc(m.m)}</span><span class="mono">${esc(m.roles.slice(0,2).join(', '))}${m.roles.length>2?' +'+(m.roles.length-2):''}</span></li>`).join('') : '<li><span class="small">No users or groups bound directly</span></li>') + (sacount?`<li><span class="small">+ ${sacount} service accounts</span><span></span></li>`:'') + (mem.length>14?`<li><span class="small">+ ${mem.length-14} more users/groups</span><span></span></li>`:'');
+  const sa = r.top_sa.length ? r.top_sa.map(a=>`<li><span>${esc(a.who)}<br><span class="small">${esc(a.what)}</span></span><span>${a.n.toLocaleString()} calls · ${a.last.slice(0,10)}</span></li>`).join('') + (r.log_window?`<li><span class="small">Log window ${r.log_window[0]} → ${r.log_window[1]}</span><span></span></li>`:'') : `<li><span class="small">${r.visible?'No service account activity in logs':'Logs not readable'}</span></li>`;
+  const labels = Object.entries(r.labels||{}).map(([k,v])=>`${esc(k)}=${esc(v)}`).join(', ') || '<span class="small">none</span>';
+  const la = r.last_any ? `${r.last_any.ts.slice(0,10)} by <span class="mono">${esc(r.last_any.who||'unknown')}</span>` : '—';
+  return `<div class="dgrid">
+   <div><h3>Recommended action</h3><p class="action">${esc(r.action)}</p>
+     <dl class="kv"><dt>State</dt><dd>${esc(r.state)}</dd><dt>Created</dt><dd>${esc(r.created||'—')}</dd><dt>First billed</dt><dd>${esc(r.first_seen)}</dd><dt>Last billed cost</dt><dd>${esc(r.last_cost||'never ($0)')}</dd><dt>Lifetime gross</dt><dd>${fmt(r.life)}</dd><dt>Last change</dt><dd>${r.last_write?`${r.last_write.ts.slice(0,10)} by <span class="mono">${esc(r.last_write.who)}</span><br><span class="small">${esc(r.last_write.method)}</span>`:'none since __SINCE__'}</dd><dt>Last log entry</dt><dd>${la}</dd><dt>Labels</dt><dd class="mono">${labels}</dd><dt>Parent</dt><dd class="mono">${esc(r.parent||'—')}</dd></dl>
+     ${r.recommender.length?`<p class="small">Google recommender: ${esc(r.recommender.join(' '))}</p>`:''}</div>
+   <div><h3>Net cost by month</h3><div class="mtable">${months}</div><h3 style="margin-top:8px">Services, last 13 months</h3><ul class="list">${svcs}</ul></div>
+   <div><h3>People with hands-on use (${r.n_users})</h3><ul class="list">${users}</ul><h3 style="margin-top:8px">Top service accounts</h3><ul class="list">${sa}</ul><h3 style="margin-top:8px">IAM access on the project</h3><ul class="list">${iam}</ul></div>
+  </div>`;
+}
+function table(){
+  const q = $('#q').value.trim().toLowerCase();
+  const list = rows.filter(r=>(!filter||r.status===filter) && (!q || [r.name,r.pid,...r.users.map(u=>u.who),...r.services.map(s=>s.name),...r.members.map(m=>m.m)].join(' ').toLowerCase().includes(q)));
+  $('#tbody').innerHTML = list.map(r=>{
+    const lp = r.last_human ? `${r.last_human.slice(0,10)}<div class="small">${esc(r.users[0].who)} · ${daysAgo(r.days_human)}</div>` : `<span class="small">${!r.visible?'not readable':'none in last 30 days'}</span>${!r.visible?'':r.top_sa[0]?`<div class="small">bot: ${esc(r.top_sa[0].who.split('@')[0])}</div>`:''}`;
+    const ms = r.services[0] ? `${esc(r.services[0].name)}${r.services.length>1?`<div class="small">+${r.services.length-1} more</div>`:''}` : '<span class="small">—</span>';
+    const isOpen = open.has(r.pid);
+    return `<tr class="main ${isOpen?'open':''}" data-p="${r.pid}">
+      <td><button class="row-btn" aria-expanded="${isOpen}"><span class="pn"><span class="caret">▸</span> ${esc(r.name)}</span><span class="pid">${esc(r.pid)}</span></button></td>
+      <td><span class="pill st-${r.status}"><span class="dot"></span>${STATUS[r.status].label}</span></td>
+      <td class="r num">${fmt(r.cost12)}</td><td>${spark(r.months, r.status)}</td><td class="r num">${fmt(r.avg3)}</td>
+      <td>${ms}</td><td class="num">${lp}</td><td class="r num">${!r.visible?'—':r.owners.length}</td></tr>` +
+      (isOpen?`<tr><td class="detail" colspan="8">${detail(r)}</td></tr>`:'');
+  }).join('') || `<tr><td colspan="8" class="muted">No projects match.</td></tr>`;
+  document.querySelectorAll('tr.main').forEach(tr=>tr.onclick=()=>{const p=tr.dataset.p; open.has(p)?open.delete(p):open.add(p); table();});
+}
+$('#q').addEventListener('input', table);
+$('#statusdefs').innerHTML = ORDER.map(s=>`<div><span><span class="pill st-${s}"><span class="dot"></span>${STATUS[s].label}</span></span><span class="muted">${STATUS[s].def}</span></div>`).join('');
+$('#steps').innerHTML = DATA.steps.map(s=>`<li>${s}</li>`).join('');
+$('#ideas').innerHTML = DATA.ideas.map(s=>`<li>${s}</li>`).join('');
+chips(); chart(); table();
+</script>
